@@ -47,12 +47,29 @@ export function getSeasons(anime) {
   return buildSeasons(anime)
 }
 
+/**
+ * Bölümlere bağlanan örnek video kütüphanesi.
+ * Big Buck Bunny ve Sintel: © Blender Foundation, CC-BY 3.0.
+ * Flower: CC0 (MDN örnek medyası).
+ * Kendi/lisanslı videolarınızla değiştirmek için bu listeyi güncelleyin
+ * veya veri katmanını API'ye bağlayın.
+ */
+export const VIDEO_LIBRARY = [
+  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_5MB.mp4',
+  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_5MB.mp4',
+  'https://test-videos.co.uk/vids/sintel/mp4/h264/720/Sintel_720_10s_5MB.mp4',
+  'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4',
+  'https://test-videos.co.uk/vids/jellyfish/mp4/h264/720/Jellyfish_720_10s_5MB.mp4',
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+]
+
 const episodeCache = new Map()
 
 export function getEpisodes(anime) {
   if (episodeCache.has(anime.id)) return episodeCache.get(anime.id)
 
   const r = mulberry32(hashString(anime.id))
+  const seed = hashString(anime.id)
   const total = anime.currentEpisode ?? anime.episodes
   const seasons = buildSeasons(anime)
   const today = new Date()
@@ -86,6 +103,7 @@ export function getEpisodes(anime) {
         airDate: airDate.toISOString(),
         views: Math.floor(80_000 + r() * 1_450_000),
         duration: anime.duration,
+        videoUrl: VIDEO_LIBRARY[(seed + ep) % VIDEO_LIBRARY.length],
       })
     }
   }

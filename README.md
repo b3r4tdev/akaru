@@ -97,3 +97,11 @@ Görseller, deterministik algoritmik SVG'ler olarak `utils/artwork.js` içinde �
 ## Not
 
 Projedeki tüm anime içerikleri, adlar ve stüdyolar kurgusaldır. Tasarım ve kod tamamen özgün olarak geliştirilmiştir.
+
+Oynatıcı gerçek video oynatır; bölümler, örnek olarak Creative Commons lisanslı kısa filmlere bağlanmıştır (`src/data/episodes.js` içindeki `VIDEO_LIBRARY`):
+
+- **Big Buck Bunny, Sintel** — © Blender Foundation | www.blender.org | CC-BY 3.0
+- **Jellyfish** — test-videos.co.uk örnek kütüphanesi
+- **Flower** — CC0 (MDN örnek medyası)
+
+Lisanslı/kendi videolarınıza geçmek için `VIDEO_LIBRARY` listesini değiştirmeniz veya veri katmanını API'ye bağlamanız yeterlidir.

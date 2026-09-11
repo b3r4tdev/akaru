@@ -82,7 +82,7 @@ export default function WatchPage() {
             onNext={nextEpisode ? goNext : null}
             onPrev={prevEpisode ? goPrev : null}
             onEnded={handleEnded}
-            onProgress={(t) => setProgress(anime.id, episode.number, t, episode.duration * 60)}
+            onProgress={(t, d) => setProgress(anime.id, episode.number, t, d || episode.duration * 60)}
           />
 
           <div className="mt-5 px-4 sm:px-0">

@@ -4,6 +4,7 @@ import {
   Check,
   Gauge,
   Languages,
+  Loader2,
   Maximize,
   Minimize,
   Pause,
@@ -18,6 +19,7 @@ import {
   Volume1,
   Volume2,
   VolumeX,
+  WifiOff,
 } from 'lucide-react'
 import { formatTime } from '@/utils/formatters'
 import { cx } from '@/utils/cx'
@@ -29,15 +31,18 @@ const SUBTITLES = ['Türkçe', 'İngilizce', 'Japonca', 'Kapalı']
 export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, onEnded, onProgress }) {
   const { toast } = useToast()
   const containerRef = useRef(null)
+  const videoRef = useRef(null)
   const hideTimerRef = useRef(null)
-  const progressTickRef = useRef(0)
-
-  const duration = episode.duration * 60
+  const lastSentRef = useRef(-1)
 
   const [playing, setPlaying] = useState(false)
-  const [current, setCurrent] = useState(Math.min(initialTime, duration - 1))
+  const [current, setCurrent] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [bufferedPct, setBufferedPct] = useState(0)
   const [volume, setVolume] = useState(0.8)
   const [muted, setMuted] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const [failed, setFailed] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [quality, setQuality] = useState('Otomatik')
@@ -47,42 +52,28 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
   const [fullscreen, setFullscreen] = useState(false)
   const [ended, setEnded] = useState(false)
 
+  const effectiveVolume = muted ? 0 : volume
+
   useEffect(() => {
-    setCurrent(Math.min(initialTime, duration - 1))
     setEnded(false)
-    setPlaying(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setFailed(false)
+    setCurrent(0)
+    setWaiting(false)
+    lastSentRef.current = -1
   }, [episode.id])
 
   useEffect(() => {
-    if (!playing || ended) return
-    const interval = setInterval(() => {
-      setCurrent((t) => {
-        const next = t + 0.25
-        if (next >= duration) {
-          setPlaying(false)
-          setEnded(true)
-          onEnded?.()
-          return duration
-        }
-        return next
-      })
-    }, 250)
-    return () => clearInterval(interval)
-  }, [playing, ended, duration, onEnded])
+    const v = videoRef.current
+    if (!v) return
+    v.volume = effectiveVolume
+    v.muted = muted
+  }, [effectiveVolume, muted, episode.id])
 
   useEffect(() => {
-    if (!ended || !autoplay || !onNext) return
-    const t = setTimeout(() => onNext(), 2400)
-    return () => clearTimeout(t)
-  }, [ended, autoplay, onNext])
-
-  useEffect(() => {
-    progressTickRef.current += 1
-    if (progressTickRef.current % 8 === 0 && onProgress) {
-      onProgress(current)
-    }
-  }, [current, onProgress])
+    const onFsChange = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
 
   const revealControls = useCallback(() => {
     setShowControls(true)
@@ -99,28 +90,30 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
     }
   }, [revealControls])
 
-  useEffect(() => {
-    const onFsChange = () => setFullscreen(Boolean(document.fullscreenElement))
-    document.addEventListener('fullscreenchange', onFsChange)
-    return () => document.removeEventListener('fullscreenchange', onFsChange)
-  }, [])
-
   const togglePlay = useCallback(() => {
+    const v = videoRef.current
+    if (!v || failed) return
     if (ended) {
-      setCurrent(0)
+      v.currentTime = 0
       setEnded(false)
-      setPlaying(true)
+      v.play().catch(() => {})
       return
     }
-    setPlaying((p) => !p)
-  }, [ended])
+    if (v.paused) {
+      v.play().catch(() => {})
+    } else {
+      v.pause()
+    }
+  }, [ended, failed])
 
   const seekBy = useCallback(
     (delta) => {
-      setCurrent((t) => Math.min(Math.max(t + delta, 0), duration))
+      const v = videoRef.current
+      if (!v || !v.duration) return
+      v.currentTime = Math.min(Math.max(v.currentTime + delta, 0), v.duration)
       revealControls()
     },
-    [duration, revealControls],
+    [revealControls],
   )
 
   const toggleFullscreen = useCallback(async () => {
@@ -142,11 +135,11 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
           break
         case 'arrowright':
           e.preventDefault()
-          seekBy(10)
+          seekBy(5)
           break
         case 'arrowleft':
           e.preventDefault()
-          seekBy(-10)
+          seekBy(-5)
           break
         case 'm':
           setMuted((m) => !m)
@@ -165,12 +158,57 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
     return () => window.removeEventListener('keydown', onKey)
   }, [togglePlay, seekBy, toggleFullscreen])
 
-  const handleProgressClick = (e) => {
+  useEffect(() => {
+    if (!ended || !autoplay || !onNext) return
+    const t = setTimeout(() => onNext(), 2400)
+    return () => clearTimeout(t)
+  }, [ended, autoplay, onNext])
+
+  const handleLoadedMetadata = () => {
+    const v = videoRef.current
+    if (!v) return
+    setDuration(v.duration || 0)
+    if (initialTime > 0 && initialTime < (v.duration || 0) - 3) {
+      v.currentTime = initialTime
+    }
+    v.play().catch(() => {})
+  }
+
+  const handleTimeUpdate = () => {
+    const v = videoRef.current
+    if (!v) return
+    setCurrent(v.currentTime)
+    if (v.buffered.length && v.duration) {
+      setBufferedPct(Math.min(100, (v.buffered.end(v.buffered.length - 1) / v.duration) * 100))
+    }
+    if (Math.abs(v.currentTime - lastSentRef.current) >= 2) {
+      lastSentRef.current = v.currentTime
+      onProgress?.(v.currentTime, v.duration)
+    }
+  }
+
+  const handleEnded = () => {
+    setPlaying(false)
+    setEnded(true)
+    onEnded?.()
+  }
+
+  const handleSeekClick = (e) => {
+    const v = videoRef.current
+    if (!v || !v.duration) return
     const rect = e.currentTarget.getBoundingClientRect()
     const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1)
-    setCurrent(ratio * duration)
+    v.currentTime = ratio * v.duration
     setEnded(false)
     revealControls()
+  }
+
+  const retry = () => {
+    const v = videoRef.current
+    if (!v) return
+    setFailed(false)
+    v.load()
+    v.play().catch(() => {})
   }
 
   const selectQuality = (q) => {
@@ -185,9 +223,7 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
     toast(s === 'Kapalı' ? 'Altyazılar kapatıldı' : `Altyazı: ${s}`, 'info')
   }
 
-  const progressPct = (current / duration) * 100
-  const bufferedPct = Math.min(progressPct + 14, 100)
-  const effectiveVolume = muted ? 0 : volume
+  const progressPct = duration ? (current / duration) * 100 : 0
 
   return (
     <div
@@ -201,16 +237,33 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
       role="region"
       aria-label={`${anime.title} ${episode.number}. bölüm oynatıcı`}
     >
-      <div className="player-stage absolute inset-0" aria-hidden="true" />
-      <div className="dot-grid absolute inset-0 opacity-40" aria-hidden="true" />
+      <div className={cx('player-stage absolute inset-0 transition-opacity', failed && '!opacity-100')} aria-hidden="true" />
 
-      <div className="absolute inset-0 flex flex-col items-center justify-center" aria-hidden="true">
-        <span className="stage-pulse text-[26vw] font-black leading-none text-white/[0.05] sm:text-[160px]">
-          {anime.title.charAt(0)}
-        </span>
-      </div>
+      <video
+        ref={videoRef}
+        key={episode.id}
+        src={episode.videoUrl}
+        poster={anime.banner}
+        playsInline
+        preload="metadata"
+        className={cx('absolute inset-0 h-full w-full bg-black object-contain', failed && 'opacity-0')}
+        onClick={togglePlay}
+        onLoadedMetadata={handleLoadedMetadata}
+        onTimeUpdate={handleTimeUpdate}
+        onPlay={() => {
+          setPlaying(true)
+          setEnded(false)
+        }}
+        onPause={() => setPlaying(false)}
+        onWaiting={() => setWaiting(true)}
+        onPlaying={() => setWaiting(false)}
+        onCanPlay={() => setWaiting(false)}
+        onEnded={handleEnded}
+        onError={() => setFailed(true)}
+        aria-label={`${anime.title} — ${episode.number}. bölüm: ${episode.title}`}
+      />
 
-      <div className="absolute right-5 top-5 flex flex-col items-end gap-1 opacity-60">
+      <div className="pointer-events-none absolute right-5 top-5 flex flex-col items-end gap-1 opacity-60">
         <span className="rounded-md bg-black/40 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-zinc-300 backdrop-blur-md">
           AKARU Yayın
         </span>
@@ -219,7 +272,35 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
         </span>
       </div>
 
-      {!playing && !ended && (
+      {failed && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-abyss/80 backdrop-blur-sm">
+          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-akaru-600/15 text-akaru-400">
+            <WifiOff className="h-8 w-8" aria-hidden="true" />
+          </span>
+          <div className="text-center">
+            <p className="font-bold text-white">Video yüklenemedi</p>
+            <p className="mt-1 text-sm text-zinc-400">
+              Bağlantını kontrol et; sorun sürerse bölümü yeniden başlatmayı dene.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={retry}
+            className="flex items-center gap-2 rounded-xl bg-akaru-600 px-5 py-2.5 text-sm font-bold text-white shadow-glow-sm transition-colors hover:bg-akaru-500"
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            Tekrar Dene
+          </button>
+        </div>
+      )}
+
+      {waiting && !failed && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="h-12 w-12 animate-spin text-akaru-500 drop-shadow-[0_0_18px_rgba(249,46,86,0.6)]" aria-label="Yükleniyor" />
+        </div>
+      )}
+
+      {!playing && !ended && !failed && !waiting && (
         <button
           type="button"
           onClick={togglePlay}
@@ -227,7 +308,7 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
           aria-label="Oynat"
         >
           <motion.span
-            initial={{ scale: 0.8, opacity: 0 }}
+            initial={{ scale: 0.85, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="flex h-20 w-20 items-center justify-center rounded-full bg-akaru-600/90 text-white shadow-glow backdrop-blur-md transition-transform hover:scale-110"
           >
@@ -239,7 +320,7 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
       {ended && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/70 backdrop-blur-sm">
           <p className="text-sm font-bold uppercase tracking-widest text-zinc-400">Bölüm tamamlandı</p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3 px-4">
             <button
               type="button"
               onClick={onPrev}
@@ -252,14 +333,16 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
             <button
               type="button"
               onClick={() => {
-                setCurrent(0)
+                const v = videoRef.current
+                if (!v) return
+                v.currentTime = 0
                 setEnded(false)
-                setPlaying(true)
+                v.play().catch(() => {})
               }}
               className="flex h-12 w-12 items-center justify-center rounded-xl bg-akaru-600 text-white shadow-glow-sm transition-colors hover:bg-akaru-500"
               aria-label="Baştan oynat"
             >
-              <RotateCcw className="h-5 w-5" />
+              <RotateCw className="h-5 w-5" />
             </button>
             <button
               type="button"
@@ -288,7 +371,7 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
           >
             <div
               className="group/bar relative mx-4 cursor-pointer py-2"
-              onClick={handleProgressClick}
+              onClick={handleSeekClick}
               role="slider"
               aria-label="Video konumu"
               aria-valuemin={0}
@@ -296,8 +379,8 @@ export function VideoPlayer({ anime, episode, initialTime = 0, onNext, onPrev, o
               aria-valuenow={Math.round(current)}
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === 'ArrowRight') seekBy(10)
-                if (e.key === 'ArrowLeft') seekBy(-10)
+                if (e.key === 'ArrowRight') seekBy(5)
+                if (e.key === 'ArrowLeft') seekBy(-5)
               }}
             >
               <div className="relative h-1 rounded-full bg-white/20 transition-all group-hover/bar:h-1.5">
