@@ -1,23 +1,51 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { LogIn, X } from 'lucide-react'
+import { Loader2, LogIn, UserPlus, X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { Logo } from '@/components/Logo/Logo'
 
 export function LoginModal() {
-  const { loginOpen, closeLogin, login } = useAuth()
+  const { loginOpen, closeLogin, login, register } = useAuth()
   const { toast } = useToast()
+  const [mode, setMode] = useState('login')
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  const submit = (e) => {
+  const reset = () => {
+    setUsername('')
+    setDisplayName('')
+    setPassword('')
+    setError('')
+    setBusy(false)
+  }
+
+  const switchMode = (next) => {
+    setMode(next)
+    setError('')
+  }
+
+  const submit = async (e) => {
     e.preventDefault()
-    if (login(username, displayName)) {
-      toast(`Hoş geldin, ${username.trim()}!`, 'success', 'İzleme listen seni bekliyor.')
+    if (busy) return
+    setBusy(true)
+    setError('')
+
+    const res =
+      mode === 'login'
+        ? await login(username.trim(), password)
+        : await register(username.trim(), displayName.trim(), password)
+
+    if (res.ok) {
+      toast(`Hoş geldin, ${res.user.displayName}!`, 'success', 'İzleme listen seni bekliyor.')
+      reset()
       closeLogin()
-      setUsername('')
-      setDisplayName('')
+    } else {
+      setError(res.error)
+      setBusy(false)
     }
   }
 
@@ -34,7 +62,7 @@ export function LoginModal() {
           }}
           role="dialog"
           aria-modal="true"
-          aria-label="Giriş yap"
+          aria-label={mode === 'login' ? 'Giriş yap' : 'Kayıt ol'}
         >
           <motion.div
             initial={{ opacity: 0, y: 24, scale: 0.96 }}
@@ -55,56 +83,138 @@ export function LoginModal() {
               </button>
             </div>
 
-            <h2 className="text-xl font-extrabold text-white">AKARU'ya giriş yap</h2>
+            <div className="mb-6 flex rounded-xl bg-white/[0.05] p-1" role="tablist">
+              {[
+                { key: 'login', label: 'Giriş Yap', icon: LogIn },
+                { key: 'register', label: 'Kayıt Ol', icon: UserPlus },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === tab.key}
+                  onClick={() => switchMode(tab.key)}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-bold transition-all ${
+                    mode === tab.key
+                      ? 'bg-akaru-600 text-white shadow-glow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <tab.icon className="h-4 w-4" aria-hidden="true" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <h2 className="text-lg font-extrabold text-white">
+              {mode === 'login' ? 'AKARU hesabına giriş' : 'AKARU’ya katıl'}
+            </h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Listelerini, izleme geçmişini ve bildirimlerini senkronize et.
+              {mode === 'login'
+                ? 'İzleme listen ve profilin seni bekliyor.'
+                : 'Saniyeler içinde hesabını oluştur, listelerini sakla.'}
             </p>
 
             <form onSubmit={submit} className="mt-6 space-y-4">
               <div>
                 <label
-                  htmlFor="login-username"
+                  htmlFor="auth-username"
                   className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-500"
                 >
                   Kullanıcı Adı
                 </label>
                 <input
-                  id="login-username"
+                  id="auth-username"
                   type="text"
                   required
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="ornek: kizilgece"
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white placeholder:text-zinc-600 transition-colors focus:border-akaru-500/60 focus:outline-none"
                 />
               </div>
+
+              {mode === 'register' && (
+                <div>
+                  <label
+                    htmlFor="auth-display"
+                    className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-500"
+                  >
+                    Görünen Ad{' '}
+                    <span className="font-medium normal-case text-zinc-600">(isteğe bağlı)</span>
+                  </label>
+                  <input
+                    id="auth-display"
+                    type="text"
+                    autoComplete="name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Profilinde görünecek ad"
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white placeholder:text-zinc-600 transition-colors focus:border-akaru-500/60 focus:outline-none"
+                  />
+                </div>
+              )}
+
               <div>
                 <label
-                  htmlFor="login-display"
+                  htmlFor="auth-password"
                   className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-500"
                 >
-                  Görünen Ad <span className="font-medium normal-case text-zinc-600">(isteğe bağlı)</span>
+                  Şifre
                 </label>
                 <input
-                  id="login-display"
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Profilinde görünecek ad"
+                  id="auth-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="En az 6 karakter"
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white placeholder:text-zinc-600 transition-colors focus:border-akaru-500/60 focus:outline-none"
                 />
               </div>
+
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-xl border border-akaru-500/30 bg-akaru-600/10 px-4 py-2.5 text-xs font-semibold text-akaru-200"
+                  role="alert"
+                >
+                  {error}
+                </motion.p>
+              )}
+
               <button
                 type="submit"
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-akaru-600 text-sm font-bold text-white shadow-glow-sm transition-all hover:bg-akaru-500 hover:shadow-glow active:scale-[0.98]"
+                disabled={busy}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-akaru-600 text-sm font-bold text-white shadow-glow-sm transition-all hover:bg-akaru-500 hover:shadow-glow active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <LogIn className="h-4 w-4" aria-hidden="true" />
-                Giriş Yap
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : mode === 'login' ? (
+                  <LogIn className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <UserPlus className="h-4 w-4" aria-hidden="true" />
+                )}
+                {mode === 'login' ? 'Giriş Yap' : 'Hesap Oluştur'}
               </button>
             </form>
 
             <p className="mt-5 text-center text-[11px] leading-relaxed text-zinc-600">
-              Bu, örnek verilerle çalışan bir demo oturumdur. Bilgiler yalnızca bu tarayıcıda saklanır.
+              Şifreler bcrypt ile şifrelenip SQLite veritabanında saklanır.
+              {mode === 'login' && ' Hesabın yok mu? '}{' '}
+              {mode === 'login' && (
+                <button
+                  type="button"
+                  onClick={() => switchMode('register')}
+                  className="font-bold text-akaru-400 hover:text-akaru-300"
+                >
+                  Kayıt ol
+                </button>
+              )}
             </p>
           </motion.div>
         </motion.div>

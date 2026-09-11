@@ -35,7 +35,7 @@ function useLockBody(locked) {
 export function Navbar() {
   const scrolled = useScrolled(20)
   const location = useLocation()
-  const { user, openLogin, logout } = useAuth()
+  const { user, ready, openLogin, logout } = useAuth()
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -141,7 +141,9 @@ export function Navbar() {
               <AnimatePresence>{notifOpen && <NotificationsDropdown onClose={() => setNotifOpen(false)} />}</AnimatePresence>
             </div>
 
-            {user ? (
+            {!ready ? (
+              <span className="h-10 w-24 animate-pulse rounded-xl bg-white/5" aria-hidden="true" />
+            ) : user ? (
               <div className="relative" ref={userMenuRef}>
                 <button
                   type="button"

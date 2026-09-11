@@ -101,11 +101,18 @@ export default function ProfilePage() {
     setEditOpen(true)
   }
 
-  const saveEdit = (e) => {
+  const saveEdit = async (e) => {
     e.preventDefault()
-    updateUser({ displayName: nameDraft.trim() || user.displayName, bio: bioDraft.trim() })
-    setEditOpen(false)
-    toast('Profil güncellendi', 'success')
+    const res = await updateUser({
+      displayName: nameDraft.trim() || user.displayName,
+      bio: bioDraft.trim(),
+    })
+    if (res.ok) {
+      setEditOpen(false)
+      toast('Profil güncellendi', 'success')
+    } else {
+      toast(res.error || 'Profil güncellenemedi', 'error')
+    }
   }
 
   const STAT_CARDS = [

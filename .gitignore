@@ -6,3 +6,5 @@ dist-ssr
 .DS_Store
 *.log
 .vite
+server/akaru.sqlite*
+server/.secret
